@@ -1,7 +1,7 @@
 FROM debian:stretch
 
 ENTRYPOINT [ "/marathon-lb/run" ]
-CMD        [ "sse", "-m", "http://master.mesos:8080", "--health-check", "--group", "external" ]
+CMD        [ "sse", "-m", "http://master.mesos:8080", "--health-check", "--group", "external", "--ssl-certs", "echo ${CERTS}" ]
 EXPOSE     80 443 9090 9091
 
 COPY requirements.txt /marathon-lb/requirements.txt
