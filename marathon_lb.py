@@ -28,6 +28,7 @@ import os.path
 import random
 import re
 import shlex
+import signal
 import stat
 import subprocess
 import sys
@@ -334,7 +335,6 @@ def _get_health_check_options(template, health_check, health_check_port):
         healthCheckPath=health_check.get('path', '/'),
         healthCheckTimeoutSeconds=health_check['timeoutSeconds'],
         healthCheckIntervalSeconds=health_check['intervalSeconds'],
-        healthCheckIgnoreHttp1xx=health_check['ignoreHttp1xx'],
         healthCheckGracePeriodSeconds=health_check['gracePeriodSeconds'],
         healthCheckMaxConsecutiveFailures=health_check[
             'maxConsecutiveFailures'],
@@ -660,6 +660,7 @@ def reloadConfig():
             subprocess.check_call(reloadCommand, close_fds=True)
             # Wait until the reload actually occurs and there's a new PID
             while len(get_haproxy_pids() - old_pids) < 1:
+                logger.debug("Waiting for new haproxy pid...")
                 time.sleep(0.1)
             logger.debug("reload finished, took %s seconds",
                          time.time() - start_time)
@@ -1056,28 +1057,14 @@ def writeConfigAndValidate(
         # Change the file paths in the config to (temporarily) point to the
         # temporary map files so those can also be checked when the config is
         # validated
-        if not args.skip_validation:
-            temp_config = config.replace(
-                domain_map_file, domain_temp_map_file
-            ).replace(app_map_file, app_temp_map_file)
+        temp_config = config.replace(
+            domain_map_file, domain_temp_map_file
+        ).replace(app_map_file, app_temp_map_file)
 
     # Write the new config to a temporary file
     haproxyTempConfigFile = writeReplacementTempFile(temp_config, config_file)
 
-    # If skip validation flag is provided, don't check.
-    if args.skip_validation:
-        logger.debug("skipping validation.")
-        if haproxy_map:
-            moveTempFile(domain_temp_map_file, domain_map_file)
-            moveTempFile(app_temp_map_file, app_map_file)
-        moveTempFile(haproxyTempConfigFile, config_file)
-        return True
-
-    # Check that config is valid
-    cmd = ['haproxy', '-f', haproxyTempConfigFile, '-c']
-    logger.debug("checking config with command: " + str(cmd))
-    returncode = subprocess.call(args=cmd)
-    if returncode == 0:
+    if validateConfig(haproxyTempConfigFile):
         # Move into place
         if haproxy_map:
             moveTempFile(domain_temp_map_file, domain_map_file)
@@ -1086,11 +1073,13 @@ def writeConfigAndValidate(
             # Edit the config file again to point to the actual map paths
             with open(haproxyTempConfigFile, 'w') as tempConfig:
                 tempConfig.write(config)
+        else:
+            truncateMapFileIfExists(domain_map_file)
+            truncateMapFileIfExists(app_map_file)
 
         moveTempFile(haproxyTempConfigFile, config_file)
         return True
     else:
-        logger.error("haproxy returned non-zero when checking config")
         return False
 
 
@@ -1114,10 +1103,36 @@ def writeReplacementTempFile(content, file_to_replace):
     return tempFile
 
 
+def validateConfig(haproxy_config_file):
+    # If skip validation flag is provided, don't check.
+    if args.skip_validation:
+        logger.debug("skipping validation.")
+        return True
+
+    # Check that config is valid
+    cmd = ['haproxy', '-f', haproxy_config_file, '-c']
+    logger.debug("checking config with command: " + str(cmd))
+    returncode = subprocess.call(args=cmd)
+    if returncode == 0:
+        return True
+    else:
+        logger.error("haproxy returned non-zero when checking config")
+        return False
+
+
 def moveTempFile(temp_file, dest_file):
     # Replace the old file with the new from its temporary location
     logger.debug("moving temp file %s to %s", temp_file, dest_file)
     move(temp_file, dest_file)
+
+
+def truncateMapFileIfExists(map_file):
+    if os.path.isfile(map_file):
+        logger.debug("Truncating map file as haproxy-map flag "
+                     "is disabled %s", map_file)
+        fd = os.open(map_file, os.O_RDWR)
+        os.ftruncate(fd, 0)
+        os.close(fd)
 
 
 def compareWriteAndReloadConfig(config, config_file, domain_map_array,
@@ -1154,8 +1169,9 @@ def compareWriteAndReloadConfig(config, config_file, domain_map_array,
                     app_map_string, app_map_file, haproxy_map):
                 reloadConfig()
             else:
-                logger.warning("skipping reload: config not valid")
-
+                logger.warning("skipping reload: config/map not valid")
+        else:
+            logger.debug("skipping reload: config/map unchanged")
     else:
         truncateMapFileIfExists(domain_map_file)
         truncateMapFileIfExists(app_map_file)
@@ -1169,6 +1185,8 @@ def compareWriteAndReloadConfig(config, config_file, domain_map_array,
                 reloadConfig()
             else:
                 logger.warning("skipping reload: config not valid")
+        else:
+            logger.debug("skipping reload: config unchanged")
 
 
 def generateMapString(map_array):
@@ -1196,15 +1214,6 @@ def compareMapFile(map_file, map_string):
         logger.warning("couldn't open map file for reading")
 
     return runningmap != map_string
-
-
-def truncateMapFileIfExists(map_file):
-    if os.path.isfile(map_file):
-        logger.debug("Truncating map file as haproxy-map flag "
-                     "is disabled %s", map_file)
-        fd = os.open(map_file, os.O_RDWR)
-        os.ftruncate(fd, 0)
-        os.close(fd)
 
 
 def get_health_check(app, portIndex):
@@ -1376,7 +1385,9 @@ def get_apps(marathon):
                 service.healthCheck = \
                     get_health_check(app, service.healthcheck_port_index)
                 if service.healthCheck:
-                    if service.healthCheck['protocol'] == 'HTTP':
+                    healthProto = service.healthCheck['protocol']
+                    if healthProto in ['HTTP', 'HTTPS', 'MESOS_HTTP',
+                                       'MESOS_HTTPS']:
                         service.mode = 'http'
 
             marathon_app.services[servicePort] = service
@@ -1458,48 +1469,79 @@ class MarathonEventProcessor(object):
         self.__ssl_certs = ssl_certs
 
         self.__condition = threading.Condition()
-        self.__thread = threading.Thread(target=self.do_reset)
         self.__pending_reset = False
-        self.__stop = False
+        self.__pending_reload = False
         self.__haproxy_map = haproxy_map
-        self.__thread.start()
 
         # Fetch the base data
         self.reset_from_tasks()
 
-    def do_reset(self):
+    def start(self):
+        self.__stop = False
+        self.__thread = threading.Thread(target=self.try_reset)
+        self.__thread.start()
+
+    def try_reset(self):
         with self.__condition:
             logger.info('starting event processor thread')
             while True:
                 self.__condition.acquire()
+
                 if self.__stop:
                     logger.info('stopping event processor thread')
+                    self.__condition.release()
                     return
-                if not self.__pending_reset:
+
+                if not self.__pending_reset and not self.__pending_reload:
                     if not self.__condition.wait(300):
                         logger.info('condition wait expired')
+
+                pending_reset = self.__pending_reset
+                pending_reload = self.__pending_reload
                 self.__pending_reset = False
+                self.__pending_reload = False
+
                 self.__condition.release()
 
-                try:
-                    start_time = time.time()
+                # Reset takes precedence over reload
+                if pending_reset:
+                    self.do_reset()
+                elif pending_reload:
+                    self.do_reload()
+                else:
+                    # Timed out waiting on the condition variable, just do a
+                    # full reset for good measure (as was done before).
+                    self.do_reset()
 
-                    self.__apps = get_apps(self.__marathon)
-                    regenerate_config(self.__apps,
-                                      self.__config_file,
-                                      self.__groups,
-                                      self.__bind_http_https,
-                                      self.__ssl_certs,
-                                      self.__templater,
-                                      self.__haproxy_map)
+    def do_reset(self):
+        try:
+            start_time = time.time()
 
-                    logger.debug("updating tasks finished, took %s seconds",
-                                 time.time() - start_time)
-                except requests.exceptions.ConnectionError as e:
-                    logger.error("Connection error({0}): {1}".format(
-                        e.errno, e.strerror))
-                except:
-                    logger.exception("Unexpected error!")
+            self.__apps = get_apps(self.__marathon)
+            regenerate_config(self.__apps,
+                              self.__config_file,
+                              self.__groups,
+                              self.__bind_http_https,
+                              self.__ssl_certs,
+                              self.__templater,
+                              self.__haproxy_map)
+
+            logger.debug("updating tasks finished, took %s seconds",
+                         time.time() - start_time)
+        except requests.exceptions.ConnectionError as e:
+            logger.error("Connection error({0}): {1}".format(
+                e.errno, e.strerror))
+        except:
+            logger.exception("Unexpected error!")
+
+    def do_reload(self):
+        try:
+            # Validate the existing config before reloading
+            logger.debug("attempting to reload existing config...")
+            if validateConfig(self.__config_file):
+                reloadConfig()
+        except:
+            logger.exception("Unexpected error!")
 
     def stop(self):
         self.__condition.acquire()
@@ -1513,11 +1555,27 @@ class MarathonEventProcessor(object):
         self.__condition.notify()
         self.__condition.release()
 
+    def reload_existing_config(self):
+        self.__condition.acquire()
+        self.__pending_reload = True
+        self.__condition.notify()
+        self.__condition.release()
+
     def handle_event(self, event):
         if event['eventType'] == 'status_update_event' or \
                 event['eventType'] == 'health_status_changed_event' or \
                 event['eventType'] == 'api_post_event':
             self.reset_from_tasks()
+
+    def handle_signal(self, sig, stack):
+        if sig == signal.SIGHUP:
+            logger.debug('received signal SIGHUP - reloading config')
+            self.reset_from_tasks()
+        elif sig == signal.SIGUSR1:
+            logger.debug('received signal SIGUSR1 - reloading existing config')
+            self.reload_existing_config()
+        else:
+            logger.warning('received unknown signal %d' % (sig,))
 
 
 def get_arg_parser():
@@ -1581,8 +1639,6 @@ def get_arg_parser():
                              "for frontend marathon_https_in"
                              "Ex: /etc/ssl/site1.co.pem,/etc/ssl/site2.co.pem",
                         default="/etc/ssl/mesosphere.com.pem")
-    parser.add_argument("--marathon-ca-cert",
-                        help="CA certificate for Marathon HTTPS connections")
     parser.add_argument("--skip-validation",
                         help="Skip haproxy config file validation",
                         action="store_true")
@@ -1602,14 +1658,9 @@ def get_arg_parser():
     return parser
 
 
-def run_server(marathon, listen_addr, callback_url, config_file, groups,
-               bind_http_https, ssl_certs, haproxy_map, marathon_ca_cert):
-    processor = MarathonEventProcessor(marathon,
-                                       config_file,
-                                       groups,
-                                       bind_http_https,
-                                       ssl_certs, haproxy_map)
+def run_server(marathon, listen_addr, callback_url, processor):
     try:
+        processor.start()
         marathon.add_subscriber(callback_url)
 
         # TODO(cmaloney): Switch to a sane http server
@@ -1636,14 +1687,9 @@ def clear_callbacks(marathon, callback_url):
     marathon.remove_subscriber(callback_url)
 
 
-def process_sse_events(marathon, config_file, groups,
-                       bind_http_https, ssl_certs, haproxy_map):
-    processor = MarathonEventProcessor(marathon,
-                                       config_file,
-                                       groups,
-                                       bind_http_https,
-                                       ssl_certs, haproxy_map)
+def process_sse_events(marathon, processor):
     try:
+        processor.start()
         events = marathon.get_event_stream()
         for event in events:
             try:
@@ -1727,6 +1773,18 @@ if __name__ == '__main__':
                         get_marathon_auth_params(args),
                         args.marathon_ca_cert)
 
+    # If we're going to be handling events, set up the event processor and
+    # hook it up to the process signals.
+    if args.listening or args.sse:
+        processor = MarathonEventProcessor(marathon,
+                                           args.haproxy_config,
+                                           args.group,
+                                           not args.dont_bind_http_https,
+                                           args.ssl_certs,
+                                           args.haproxy_map)
+        signal.signal(signal.SIGHUP, processor.handle_signal)
+        signal.signal(signal.SIGUSR1, processor.handle_signal)
+
     # If in listening mode, spawn a webserver waiting for events. Otherwise
     # just write the config.
     if args.listening:
@@ -1734,10 +1792,7 @@ if __name__ == '__main__':
                        "and will be removed in future releases")
         callback_url = args.callback_url or args.listening
         try:
-            run_server(marathon, args.listening, callback_url,
-                       args.haproxy_config, args.group,
-                       not args.dont_bind_http_https, args.ssl_certs,
-                       args.haproxy_map, args.marathon_ca_cert)
+            run_server(marathon, args.listening, callback_url, processor)
         finally:
             clear_callbacks(marathon, callback_url)
     elif args.sse:
@@ -1745,18 +1800,13 @@ if __name__ == '__main__':
         while True:
             stream_started = time.time()
             try:
-                process_sse_events(marathon,
-                                   args.haproxy_config,
-                                   args.group,
-                                   not args.dont_bind_http_https,
-                                   args.ssl_certs,
-                                   args.haproxy_map)
+                process_sse_events(marathon, processor)
             except:
                 logger.exception("Caught exception")
                 backoff = backoff * 1.5
                 if backoff > 300:
                     backoff = 300
-                logger.error("Reconnecting in {}s...", backoff)
+                logger.error("Reconnecting in {}s...".format(backoff))
             # Reset the backoff if it's been more than 10 minutes
             if time.time() - stream_started > 600:
                 backoff = 3

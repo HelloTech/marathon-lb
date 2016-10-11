@@ -24,9 +24,7 @@ usage: marathon_lb.py [-h] [--longhelp] [--marathon MARATHON [MARATHON ...]]
                       [--command COMMAND] [--sse] [--health-check]
                       [--lru-cache-capacity LRU_CACHE_CAPACITY]
                       [--haproxy-map] [--dont-bind-http-https]
-                      [--ssl-certs SSL_CERTS]
-                      [--marathon-ca-cert MARATHON_CA_CERT]
-                      [--skip-validation] [--dry]
+                      [--ssl-certs SSL_CERTS] [--skip-validation] [--dry]
                       [--min-serv-port-ip-per-task MIN_SERV_PORT_IP_PER_TASK]
                       [--max-serv-port-ip-per-task MAX_SERV_PORT_IP_PER_TASK]
                       [--syslog-socket SYSLOG_SOCKET]
@@ -34,6 +32,7 @@ usage: marathon_lb.py [-h] [--longhelp] [--marathon MARATHON [MARATHON ...]]
                       [--marathon-auth-credential-file MARATHON_AUTH_CREDENTIAL_FILE]
                       [--auth-credentials AUTH_CREDENTIALS]
                       [--dcos-auth-credentials DCOS_AUTH_CREDENTIALS]
+                      [--marathon-ca-cert MARATHON_CA_CERT]
 
 Marathon HAProxy Load Balancer
 
@@ -79,9 +78,6 @@ optional arguments:
                         frontend marathon_https_inEx:
                         /etc/ssl/site1.co.pem,/etc/ssl/site2.co.pem (default:
                         /etc/ssl/mesosphere.com.pem)
-  --marathon-ca-cert MARATHON_CA_CERT
-                        CA certificate for Marathon HTTPS connections
-                        (default: None)
   --skip-validation     Skip haproxy config file validation (default: False)
   --dry, -d             Only print configuration to console (default: False)
   --min-serv-port-ip-per-task MIN_SERV_PORT_IP_PER_TASK
@@ -106,6 +102,9 @@ optional arguments:
                         'user:pass'. (default: None)
   --dcos-auth-credentials DCOS_AUTH_CREDENTIALS
                         DC/OS service account credentials (default: None)
+  --marathon-ca-cert MARATHON_CA_CERT
+                        CA certificate for Marathon HTTPS connections
+                        (default: None)
 ```
 ## Templates
 
@@ -156,7 +155,6 @@ Parameters of the first health check for this service are exposed as:
   * healthCheckPath
   * healthCheckTimeoutSeconds
   * healthCheckIntervalSeconds
-  * healthCheckIgnoreHttp1xx
   * healthCheckGracePeriodSeconds
   * healthCheckMaxConsecutiveFailures
   * healthCheckFalls is set to healthCheckMaxConsecutiveFailures + 1
@@ -229,7 +227,6 @@ Parameters of the first health check for this service are exposed as:
   * healthCheckPath
   * healthCheckTimeoutSeconds
   * healthCheckIntervalSeconds
-  * healthCheckIgnoreHttp1xx
   * healthCheckGracePeriodSeconds
   * healthCheckMaxConsecutiveFailures
   * healthCheckFalls is set to healthCheckMaxConsecutiveFailures + 1
@@ -382,6 +379,7 @@ global
   lua-load /marathon-lb/getpids.lua
   lua-load /marathon-lb/getconfig.lua
   lua-load /marathon-lb/getmaps.lua
+  lua-load /marathon-lb/signalmlb.lua
 defaults
   load-server-state-from-file global
   log               global
@@ -413,6 +411,11 @@ listen stats
   http-request use-service lua.getappmap if getappmap
   acl getconfig path /_haproxy_getconfig
   http-request use-service lua.getconfig if getconfig
+
+  acl signalmlbhup path /_mlb_signal/hup
+  http-request use-service lua.signalmlbhup if signalmlbhup
+  acl signalmlbusr1 path /_mlb_signal/usr1
+  http-request use-service lua.signalmlbusr1 if signalmlbusr1
 ```
 ## `HAPROXY_HTTPS_FRONTEND_ACL`
   *Overridable*

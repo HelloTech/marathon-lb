@@ -44,6 +44,7 @@ AES256-SHA256:AES128-SHA:AES256-SHA:DES-CBC3-SHA:!DSS
   lua-load /marathon-lb/getpids.lua
   lua-load /marathon-lb/getconfig.lua
   lua-load /marathon-lb/getmaps.lua
+  lua-load /marathon-lb/signalmlb.lua
 defaults
   load-server-state-from-file global
   log               global
@@ -75,6 +76,11 @@ listen stats
   http-request use-service lua.getappmap if getappmap
   acl getconfig path /_haproxy_getconfig
   http-request use-service lua.getconfig if getconfig
+
+  acl signalmlbhup path /_mlb_signal/hup
+  http-request use-service lua.signalmlbhup if signalmlbhup
+  acl signalmlbusr1 path /_mlb_signal/usr1
+  http-request use-service lua.signalmlbusr1 if signalmlbusr1
 '''
 
     def test_config_no_apps(self):
@@ -164,8 +170,7 @@ frontend marathon_https_in
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.groups = ['external']
@@ -223,8 +228,7 @@ backend nginx_10000
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.groups = ['external']
@@ -272,8 +276,7 @@ backend nginx_10000
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.hostname = "test.example.com"
@@ -332,8 +335,7 @@ backend nginx_10000
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.hostname = "test.example.com,test"
@@ -394,8 +396,7 @@ backend nginx_10000
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.hostname = "test.example.com"
@@ -455,8 +456,7 @@ backend nginx_10000
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.hostname = "test.example.com,test"
@@ -518,8 +518,7 @@ backend nginx_10000
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.hostname = "test.example.com"
@@ -590,8 +589,7 @@ backend nginx_10000
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.hostname = "test.example.com,test"
@@ -667,8 +665,7 @@ backend nginx_10000
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.hostname = "test.example.com"
@@ -742,8 +739,7 @@ backend nginx_10000
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.hostname = "test.example.com,test"
@@ -823,8 +819,7 @@ backend nginx_10000
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.hostname = "test.example.com"
@@ -886,8 +881,7 @@ backend nginx_10000
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.hostname = "test.example.com,test"
@@ -952,8 +946,7 @@ backend nginx_10000
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.hostname = "test.example.com"
@@ -1017,8 +1010,7 @@ backend nginx_10000
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.hostname = "test.example.com,test"
@@ -1085,8 +1077,7 @@ backend nginx_10000
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.hostname = "test.example.com,test"
@@ -1155,8 +1146,7 @@ backend nginx_10000
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.balance = "leastconn"
@@ -1268,8 +1258,7 @@ backend nginx_10000
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.groups = ['external']
@@ -1324,8 +1313,7 @@ backend nginx_10000
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.groups = ['external']
@@ -1399,8 +1387,7 @@ backend nginx_10001
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.groups = ['external']
@@ -1481,8 +1468,7 @@ backend nginx_10001
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.groups = ['external']
@@ -1555,8 +1541,7 @@ backend nginx_10001
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.groups = ['external']
@@ -1951,8 +1936,7 @@ backend nginx_10000
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.hostname = "test.example.com,test"
@@ -2101,8 +2085,7 @@ backend nginx3_10000
             "gracePeriodSeconds": 15,
             "intervalSeconds": 3,
             "timeoutSeconds": 15,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
 
         app1 = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
@@ -2207,8 +2190,7 @@ backend nginx_10000
             "gracePeriodSeconds": 15,
             "intervalSeconds": 3,
             "timeoutSeconds": 15,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
 
         app1 = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
@@ -2319,8 +2301,7 @@ backend nginx_10000
             "gracePeriodSeconds": 15,
             "intervalSeconds": 3,
             "timeoutSeconds": 15,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
 
         app1 = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
@@ -2434,8 +2415,7 @@ backend nginx_10000
             "gracePeriodSeconds": 15,
             "intervalSeconds": 3,
             "timeoutSeconds": 15,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
 
         app1 = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
@@ -2544,8 +2524,7 @@ backend nginx_10000
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.proxypath = "/proxy/path"
@@ -2603,8 +2582,7 @@ backend nginx_10000
             "gracePeriodSeconds": 10,
             "intervalSeconds": 2,
             "timeoutSeconds": 10,
-            "maxConsecutiveFailures": 10,
-            "ignoreHttp1xx": False
+            "maxConsecutiveFailures": 10
         }
         app = marathon_lb.MarathonService('/nginx', 10000, healthCheck)
         app.revproxypath = "/proxy/path"
