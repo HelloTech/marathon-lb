@@ -44,6 +44,6 @@ WORKDIR /marathon-lb
 
 ENTRYPOINT [ "/marathon-lb/run" ]
 
-CMD        [ "sse", "-m", "http://master.mesos:8080", "--health-check", "--group", "external", "--ssl-certs", "echo ${CERTS}" ]
+CMD        [ "sse", "--health-check", "--group", "external", "--ssl-certs", "echo ${CERTS}" ]
 
 EXPOSE     80 443 9090 9091
