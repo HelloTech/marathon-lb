@@ -20,7 +20,8 @@ RUN set -x \
         libffi-dev \
         libpcre3-dev \
         libreadline-dev \
-        libssl-dev \
+        libssl1.0-dev \
+        zlib1g-dev \
         make \
         python3-dev \
         python3-pip \
