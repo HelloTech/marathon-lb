@@ -18,6 +18,7 @@ fast, efficient, battle-tested, highly available load balancer with many advance
  * Automated Docker image builds ([mesosphere/marathon-lb](https://hub.docker.com/r/mesosphere/marathon-lb))
  * Global HAProxy templates which can be supplied at launch
  * Supports IP-per-task integration, such as [Project Calico](https://github.com/projectcalico/calico-containers)
+ * Includes [tini](https://github.com/krallin/tini) zombies reaper
 
 ### Getting Started
 
@@ -69,7 +70,7 @@ option `template-url` to a tarball containing a directory `templates/`.
 See [comments in script](marathon_lb.py) on how to name those.
 
 ### Docker
-Synopsis: `docker run -e PORTS=$portnumber --net=host mesosphere/marathon-lb sse|event|poll ...`
+Synopsis: `docker run -e PORTS=$portnumber --net=host mesosphere/marathon-lb sse|poll ...`
 
 You must set `PORTS` environment variable to allow haproxy bind to this port.
 Syntax: `docker run -e PORTS=9090 mesosphere/marathon-lb sse [other args]`
@@ -85,14 +86,6 @@ newer versions.
 
 Syntax: `docker run mesosphere/marathon-lb sse [other args]`
 
-#### `event` mode
-**NOTE**: `event` mode is deprecated and will be removed from marathon-lb in future releases.
-
-In event mode, the script registers a HTTP callback in marathon to get
-notified when state changes.
-
-Syntax: `docker run mesosphere/marathon-lb event callback-addr:port [other args]`
-
 #### `poll` mode
 If you can't use the HTTP callbacks, the script can poll the APIs to get
 the schedulers state periodically.
@@ -107,7 +100,7 @@ You can also run the update script directly.
 To generate an HAProxy configuration from Marathon running at `localhost:8080` with the `marathon_lb.py` script, run:
 
 ```console
-$ ./marathon_lb.py --marathon http://localhost:8080 --group external
+$ ./marathon_lb.py --marathon http://localhost:8080 --group external --strict-mode --health-check
 ```
 
 It is possible to pass `--auth-credentials=` option if your Marathon requires authentication:
@@ -130,7 +123,7 @@ $ ./marathon_lb.py --help
 You can provide your SSL certificate paths to be placed in frontend marathon_https_in section with `--ssl-certs`.
 
 ``` console
-$ ./marathon_lb.py --marathon http://localhost:8080 --group external --ssl-certs /etc/ssl/site1.co,/etc/ssl/site2.co
+$ ./marathon_lb.py --marathon http://localhost:8080 --group external --ssl-certs /etc/ssl/site1.co,/etc/ssl/site2.co --health-check --strict-mode
 ```
 
 If you are using the script directly, you have two options:
@@ -277,7 +270,6 @@ The default value when not specified is `redispatch,http-server-close,dontlognul
   < HTTP/1.1 200 OK
   ```
  * Some of the features of marathon-lb assume that it is the only instance of itself running in a PID namespace. i.e. marathon-lb assumes that it is running in a container. Certain features like the `/_mlb_signal` endpoints and the `/_haproxy_getpids` endpoint (and by extension, zero-downtime deployments) may behave unexpectedly if more than one instance of marathon-lb is running in the same PID namespace or if there are other HAProxy processes in the same PID namespace.
- * You may want to set the `HAPROXY_RELOAD_SIGTERM_DELAY` environment variable to a value such as `5m`. This value is passed directly to the `sleep` command, which is executed after every HAProxy reload before sending a SIGTERM to the old HAProxy PIDs (see [service/haproxy/run](service/haproxy/run)). For cases where you expect long-lived TCP connections, you may _not_ want to terminate HAProxy before all connections finish. See [this discussion](http://www.serverphorums.com/read.php?10,862139) for more on HAProxy reloads, and issues [#5](https://github.com/mesosphere/marathon-lb/issues/5), [#71](https://github.com/mesosphere/marathon-lb/issues/71), [#267](https://github.com/mesosphere/marathon-lb/issues/267), [#276](https://github.com/mesosphere/marathon-lb/issues/276), and [#318](https://github.com/mesosphere/marathon-lb/issues/318) for more. If you are reloading so frequently that PIDs are being reused within the delay you specify, this may result in SIGTERMs being sent to the wrong PIDs.
 
 ## Zero-downtime Deployments
 
@@ -348,6 +340,15 @@ specify it.  The range is configured using the `--min-serv-port-ip-per-task` and
 `--max-serv-port-ip-per-task` options. While port assignment is deterministic, the
 assignment is not guaranteed if you change the current set of deployed apps. In
 other words, when you deploy a new app, the port assignments may change.
+
+
+## Zombies reaping
+
+When running within isolated containers, you may have to care about reaping orphan child processes.
+Haproxy typicaly produce orphan processes because of it's two steps reload machanism.
+Marathon-lb is using [tini](https://github.com/krallin/tini) for this purpose.
+When running in a container whitout pid namespace isolation, setting the `TINI_SUBREAPER` environnement variable is recommended.
+
 
 ## Contributing
 
