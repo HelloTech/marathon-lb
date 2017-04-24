@@ -41,14 +41,13 @@ from tempfile import mkstemp
 
 import dateutil.parser
 import requests
-from six.moves.urllib import parse
 
 from common import (get_marathon_auth_params, set_logging_args,
                     set_marathon_auth_args, setup_logging)
 from config import ConfigTemplater, label_keys
 from lrucache import LRUCache
-from utils import (CurlHttpEventStream, get_task_ip_and_ports,
-                   ServicePortAssigner, set_ip_cache)
+from utils import (CurlHttpEventStream, get_task_ip_and_ports, ip_cache,
+                   ServicePortAssigner)
 
 
 logger = logging.getLogger('marathon_lb')
@@ -112,7 +111,7 @@ class MarathonService(object):
         self.bindOptions = None
         self.bindAddr = '*'
         self.groups = frozenset()
-        self.mode = 'tcp'
+        self.mode = None
         self.balance = 'roundrobin'
         self.healthCheck = healthCheck
         self.labels = {}
@@ -380,10 +379,13 @@ def config(apps, groups, bind_http_https, ssl_certs, templater,
         logger.debug("frontend at %s:%d with backend %s",
                      app.bindAddr, app.servicePort, backend)
 
-        # if the app has a hostname set force mode to http
-        # otherwise recent versions of haproxy refuse to start
-        if app.hostname:
-            app.mode = 'http'
+        # If app has HAPROXY_{n}_MODE set, use that setting.
+        # Otherwise use 'http' if HAPROXY_{N}_VHOST is set, and 'tcp' if not.
+        if app.mode is None:
+            if app.hostname:
+                app.mode = 'http'
+            else:
+                app.mode = 'tcp'
 
         if app.authUser:
             userlist_head = templater.haproxy_userlist_head(app)
@@ -1213,6 +1215,7 @@ def get_health_check(app, portIndex):
             return check
     return None
 
+
 healthCheckResultCache = LRUCache()
 
 
@@ -1719,7 +1722,7 @@ if __name__ == '__main__':
     # initialize health check LRU cache
     if args.health_check:
         healthCheckResultCache = LRUCache(args.lru_cache_capacity)
-    set_ip_cache(LRUCache(args.lru_cache_capacity))
+    ip_cache.set(LRUCache(args.lru_cache_capacity))
 
     # Marathon API connector
     marathon = Marathon(args.marathon,
